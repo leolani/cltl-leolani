@@ -1,6 +1,7 @@
 import logging
 import uuid
 from collections import Counter
+from datetime import datetime
 
 import requests
 from cltl.combot.event.emissor import LeolaniContext, Agent, ScenarioStarted, ScenarioStopped, ScenarioEvent
@@ -144,7 +145,7 @@ class ContextService:
         capsule = {
             "type": "context",
             "context_id": scenario.id,
-            "date": scenario_start,
+            "date": datetime.utcfromtimestamp(scenario_start//1000).strftime('%Y-%m-%d'),
             "place": None,
             "place_id": None,
             "country": location["country"],
