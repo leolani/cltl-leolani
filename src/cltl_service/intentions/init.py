@@ -36,7 +36,7 @@ class InitService:
             "face_topic": config.get("topic_face"),
         }
 
-        greeting = config.get("greeting")
+        greeting = config.get("greeting") if "greeting" in config else None
 
         return cls(topics, greeting, emissor_client, event_bus, resource_manager)
 
@@ -79,6 +79,11 @@ class InitService:
         self._topic_worker = None
 
     def _process(self, event: Event):
+        if not self._greeting:
+            self._event_bus.publish(self._desire_topic, Event.for_payload(DesireEvent(["initialized"])))
+            logger.info("Initialized without greeting")
+            return
+
         timestamp = timestamp_now()
 
         scheduled_invocation = event is None
