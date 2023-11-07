@@ -21,11 +21,12 @@ class IdResolutionService:
         config = config_manager.get_config("cltl.leolani.idresolution")
         speaker_topic = config.get("topic_speaker")
         knowledge_topic = config.get("topic_knowledge")
+        match_cases = "match_cases" in config and config.get_boolean("match_cases")
 
-        return cls(speaker_topic, knowledge_topic,
+        return cls(speaker_topic, knowledge_topic, match_cases,
                    friend_store, emissor_client, event_bus, resource_manager)
 
-    def __init__(self, speaker_topic: str, knowledge_topic: str,
+    def __init__(self, speaker_topic: str, knowledge_topic: str, match_cases: bool,
                  friend_store: FriendStore, emissor_client: EmissorDataClient,
                  event_bus: EventBus, resource_manager: ResourceManager):
         self._event_bus = event_bus
@@ -33,6 +34,8 @@ class IdResolutionService:
 
         self._speaker_topic = speaker_topic
         self._knowledge_topic = knowledge_topic
+
+        self._match_cases = match_cases
 
         self._topic_worker = None
 
@@ -66,12 +69,15 @@ class IdResolutionService:
         name_annotation = next(iter(filter(lambda a: a.type == "Entity", mention.annotations)))
         id_annotation = next(iter(filter(lambda a: a.type == "VectorIdentity", mention.annotations)))
 
-        same_as_capsule = self._same_as(signal_id, id_annotation.value, name_annotation.value.text)
+        capsule = [self._same_as(signal_id, id_annotation.value, name_annotation.value.text)]
+        if self._match_cases:
+            capsule.append(self._case_insensitive_same_as(signal_id, id_annotation.value, name_annotation.value.text))
+        capsule = list(filter(None, capsule))
 
-        if same_as_capsule:
-            self._event_bus.publish(self._knowledge_topic, Event.for_payload(same_as_capsule))
+        if capsule:
+            self._event_bus.publish(self._knowledge_topic, Event.for_payload(capsule))
             logger.info("Resolved identity %s to name %s (%s)",
-                        id_annotation.value, name_annotation.value.text, same_as_capsule)
+                        id_annotation.value, name_annotation.value.text, capsule)
         else:
             logger.info("No identity resolution for %s with name %s", id_annotation.value, name_annotation.value.text)
 
@@ -88,7 +94,7 @@ class IdResolutionService:
             time.sleep(0.5 if not id_uri else 0.0)
             attempt += 1
 
-        logger.debug("Found uri %s for id %s in attempt %s", id_uri, id, attempt)
+        logger.debug("Found uri %s for id %s in attempt %s, name_uri %s", id_uri, id, attempt, name_uri)
 
         if not id_uri or not name_uri or name_uri == id_uri:
             return None
@@ -108,6 +114,48 @@ class IdResolutionService:
             "predicate": {"label": None, "uri": "http://www.w3.org/2002/07/owl#sameAs"},
             "object": {"label": speaker_name, "type": ["person"],
                        'uri': name_uri},
+            "perspective": {"certainty": 1, "polarity": 0, "sentiment": 0},
+            "timestamp": timestamp_now(),
+            "context_id": scenario_id
+        }
+
+        return capsule
+
+    def _case_insensitive_same_as(self, signal_id, id, speaker_name):
+        # Storing new ID happens in parallel
+        id_uri, attempt = None, 0
+        while not id_uri and attempt < 50:
+            id_uri, _ = self._friend_store.get_friend(id)
+            time.sleep(0.5 if not id_uri else 0.0)
+            attempt += 1
+
+        logger.debug("Found uri %s for id %s in attempt %s for case matching", id_uri, id, attempt)
+
+        if not id_uri or id_uri.split('/')[-1].lower().startswith(speaker_name.lower()):
+            logger.debug("Not matching uri %s for speaker %s", id_uri, speaker_name)
+            return None
+
+        scenario_id = self._emissor_client.get_current_scenario_id()
+
+        uri_parts = id_uri.split('/')
+        title_uri = '/'.join(uri_parts[:-1]) + '/' + uri_parts[-1].title()
+        lower_case_uri = '/'.join(uri_parts[:-1]) + '/' + uri_parts[-1].lower()
+
+        logger.debug("Matched uri %s and %s", title_uri, lower_case_uri)
+
+        capsule = {
+            "chat": scenario_id,
+            "turn": signal_id,
+            "author": {"label": "Leolani", "type": ["robot"],
+                       'uri': "http://cltl.nl/leolani/world/leolani"},
+            "utterance": "",
+            "utterance_type": UtteranceType.STATEMENT,
+            "position": "",
+            "subject": {"label": speaker_name, "type": ["person"],
+                        'uri': title_uri},
+            "predicate": {"label": None, "uri": "http://www.w3.org/2002/07/owl#sameAs"},
+            "object": {"label": speaker_name, "type": ["person"],
+                       'uri': lower_case_uri},
             "perspective": {"certainty": 1, "polarity": 0, "sentiment": 0},
             "timestamp": timestamp_now(),
             "context_id": scenario_id
