@@ -83,7 +83,7 @@ class ContextService:
 
     def _process(self, event: Event):
         if event.metadata.topic == self._intention_topic:
-            intentions = event.payload.intentions
+            intentions = {intention.label for intention in event.payload.intentions}
             if "init" in intentions:
                 self._start_scenario()
             if "terminate" in intentions:

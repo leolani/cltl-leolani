@@ -25,9 +25,10 @@ class InitializeChatService():
         config = config_manager.get_config("cltl.leolani.intentions.chat")
 
         init_interval = config.get("init_interval") if "init_interval" in config else None
+        intentions = config.get("intentions", multi=True) if "intentions" in config else []
 
         return cls(config.get("topic_scenario"), config.get("topic_utterance"), config.get("topic_speaker_mention"),
-                   config.get("topic_intention"), config.get("intentions"), init_interval,
+                   config.get("topic_intention"), intentions, init_interval,
                    emissor_client, event_bus, resource_manager)
 
     def __init__(self, scenario_topic: str, utterance_topic: str, speaker_mention_topic: str,
@@ -106,7 +107,7 @@ class InitializeChatService():
         if event.metadata.topic != self._intention_topic or not hasattr(event.payload, "intentions"):
             return self._active
 
-        return self._intentions in event.payload.intentions
+        return any(intention.label in self._intentions for intention in event.payload.intentions)
 
     def _initialize_chat(self):
         response_payload = self._create_payload()

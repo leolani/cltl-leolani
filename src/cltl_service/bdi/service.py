@@ -1,6 +1,6 @@
 import logging
 
-from cltl.combot.event.bdi import IntentionEvent
+from cltl.combot.event.bdi import IntentionEvent, Intention
 from cltl.combot.infra.config import ConfigurationManager
 from cltl.combot.infra.event import Event, EventBus
 from cltl.combot.infra.resource import ResourceManager
@@ -66,15 +66,15 @@ class BDIService:
     def _process(self, event: Event):
         try:
             if event.metadata.topic == self._intention_topic:
-                if not self._intentions:
-                    self._intentions = event.payload.intentions
-                    logger.info("Set intentions to %s", self._intentions)
+                self._intentions = {intention.label for intention in event.payload.intentions}
+                logger.info("Set intentions to %s", self._intentions)
             elif event.metadata.topic == self._desire_topic:
                 self._intentions = [intention
                                     for current_intention in self._intentions
                                     for achieved in event.payload.achieved
                                     for intention in self._bdi[current_intention][achieved]]
-                self._event_bus.publish(self._intention_topic, Event.for_payload(IntentionEvent(self._intentions)))
-                logger.info("Achieved %s, set intentions to %s", event.payload.achieved[0], self._intentions)
+                intentions_payload = [Intention(intention, None) for intention in self._intentions]
+                self._event_bus.publish(self._intention_topic, Event.for_payload(IntentionEvent(intentions_payload)))
+                logger.info("Achieved %s, set intentions to %s", event.payload.achieved[0], intentions_payload)
         except:
             logger.exception("Failed to process achieved desire %s for intentions %s", event.payload, self._intentions)
